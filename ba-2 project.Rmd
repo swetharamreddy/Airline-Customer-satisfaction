@@ -1,0 +1,191 @@
+---
+title: "PROJECT"
+author: "Swetha Ramreddy"
+date: "2024-05-31"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+# Load necessary libraries
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(readr)
+library(randomForest)
+library(Boruta)
+
+```
+
+#eda
+```{r}
+# Load the dataset
+file_path <- "C:/Users/pc/OneDrive/Desktop/Copy of Airline_customer_satisfaction.csv"
+airline_data <- read_csv(file_path)
+
+head(airline_data)
+
+# Summary statistics of the dataset
+summary(airline_data)
+sum(is.na(airline_data))
+
+# Handle missing values in 'Arrival Delay in Minutes' by replacing with the median
+# Drop remaining rows with missing values
+airline_data <- airline_data %>%
+  mutate(
+    `Arrival Delay in Minutes` = ifelse(is.na(`Arrival Delay in Minutes`), median(`Arrival Delay in Minutes`, na.rm = TRUE), `Arrival Delay in Minutes`)
+  ) %>%
+  drop_na()
+
+# Convert categorical variables to factors for analysis
+airline_data <- airline_data %>%
+  mutate(
+    `Customer Type` = as.factor(`Customer Type`),
+    `Type of Travel` = as.factor(`Type of Travel`),
+    `Class` = as.factor(`Class`),
+    satisfaction = as.factor(satisfaction)
+  
+  )
+
+# Plot distribution of customer satisfaction levels
+ggplot(airline_data, aes(x = satisfaction)) +
+  geom_bar(fill = "skyblue") +
+  labs(title = "Customer satisfaction Levels", x = "satisfaction", y = "Count")
+
+
+# Age distribution
+ggplot(airline_data, aes(x = Age)) +
+  geom_histogram(binwidth = 5, fill = "coral") +
+  labs(title = "Age Distribution of Customers", x = "Age", y = "Count")
+
+# Satisfaction by Customer Type
+ggplot(airline_data, aes(x = `Customer Type`, fill = satisfaction)) +
+  geom_bar(position = "dodge") +
+  labs(title = "satisfaction by Customer Type", x = "Customer Type", y = "Count")
+
+# Satisfaction by Type of Travel
+ggplot(airline_data, aes(x = `Type of Travel`, fill = satisfaction)) +
+  geom_bar(position = "dodge") +
+  labs(title = "satisfaction by Type of Travel", x = "Type of Travel", y = "Count")
+
+# Satisfaction by Class
+ggplot(airline_data, aes(x = Class, fill = satisfaction)) +
+  geom_bar(position = "dodge") +
+  labs(title = "satisfaction by Class", x = "Class", y = "Count")
+
+```
+
+
+#correlation
+```{r}
+# Correlation matrix for numerical features
+numerical_features <- airline_data %>%
+  select(`Flight Distance`, `Departure Delay in Minutes`, `Arrival Delay in Minutes`,
+         `Seat comfort`, `Departure/Arrival time convenient`, `Food and drink`, `Gate location`,
+         `Inflight wifi service`, `Inflight entertainment`, `Online support`, `Ease of Online booking`,
+         `On-board service`, `Leg room service`, `Baggage handling`, `Checkin service`, `Cleanliness`,
+         `Online boarding`)
+
+cor_matrix <- cor(numerical_features, use = "complete.obs")
+corrplot::corrplot(cor_matrix, method = "circle")
+
+
+```
+
+
+
+#feature selection using boruta
+```{r}
+library(Boruta)
+
+# Convert satisfaction variable to factor
+airline_data$satisfaction <- as.factor(airline_data$satisfaction)
+
+# Define the formula for Boruta
+formula <- satisfaction ~ .
+
+# Run Boruta feature selection
+boruta_result <- Boruta(formula, data = airline_data)
+
+# Print Boruta summary
+print(boruta_result)
+
+
+# Get selected features
+selected_features <- getSelectedAttributes(boruta_result, withTentative = TRUE)
+print(selected_features)
+
+# Optional: Further filter the tentative features
+final_boruta <- TentativeRoughFix(boruta_result)
+final_selected_features <- getSelectedAttributes(final_boruta)
+print(final_selected_features)
+
+# Plot Boruta results
+plot(boruta_result, main = "Boruta Feature Selection")
+
+
+```
+
+
+
+#building a predictive model using decision trees
+```{r}
+# Install and load necessary packages
+library(mice)
+library(caret)
+library(rpart)
+library(rpart.plot)
+
+# Assuming 'dataset' is your dataset and 'satisfaction' is the target variable
+dataset <- read.csv(file_path)
+dataset$satisfaction <- as.factor(dataset$satisfaction)
+
+# Handle missing values
+handle_missing_values <- function(data) {
+  imputed_data <- mice(data, method = "rf")
+  completed_data <- complete(imputed_data)
+  return(completed_data)
+}
+
+dataset_imputed <- handle_missing_values(dataset)
+
+# Split the data
+split_data <- function(data, target_variable) {
+  set.seed(123) # for reproducibility
+  trainIndex <- createDataPartition(data[[target_variable]], p = 0.8, list = FALSE)
+  trainData <- data[trainIndex, ]
+  testData <- data[-trainIndex, ]
+  return(list(trainData = trainData, testData = testData))
+}
+
+data_splits <- split_data(dataset_imputed, "satisfaction")
+trainData <- data_splits$trainData
+testData <- data_splits$testData
+
+# Train the model
+model <- rpart(satisfaction ~ ., data = trainData, method = "class")
+
+# Evaluate the model
+evaluate_model <- function(model, test_data, target_variable) {
+  predictions <- predict(model, test_data, type = "class")
+  confusion <- table(predictions, test_data[[target_variable]])
+  accuracy <- sum(diag(confusion)) / sum(confusion)
+  return(list(accuracy = accuracy, confusion_matrix = confusion))
+}
+
+evaluation_results <- evaluate_model(model, testData, "satisfaction")
+
+# Print the evaluation results
+print(evaluation_results)
+
+# Plot the decision tree
+rpart.plot(model)
+
+```
+
+
+
+
+
